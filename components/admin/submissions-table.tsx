@@ -240,7 +240,7 @@ export function SubmissionsTable({ rows }: { rows: SubmissionRowView[] }) {
                   </p>
                 </td>
                 <td className="px-3 py-2.5 text-slate-600">
-                  {row.classNames.length ? row.classNames.join(", ") : "—"}
+                  {row.classNames.length ? row.classNames.join(", ") : "-"}
                 </td>
                 <td className="px-3 py-2.5 font-medium text-slate-800">
                   {row.challengeTitle}
@@ -252,7 +252,7 @@ export function SubmissionsTable({ rows }: { rows: SubmissionRowView[] }) {
                   </span>
                 </td>
                 <td className="px-3 py-2.5 text-right font-medium tabular-nums">
-                  {row.attempts || "—"}
+                  {row.attempts || "-"}
                 </td>
                 <td className="px-3 py-2.5 text-slate-600 tabular-nums">
                   {row.firstAttemptLabel}

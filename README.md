@@ -1,4 +1,4 @@
-# Looplane — programming challenge MVP
+# Looplane programming challenge MVP
 
 Looplane is a single Next.js + PostgreSQL application for students to solve short programming challenges by submitting **output text only**. It never compiles or executes student programs. Challenge definitions, generators, reference solvers, and Markdown live in the repository; PostgreSQL stores only product state and synchronized metadata.
 
@@ -78,9 +78,9 @@ A student enters the code at `/login`. Activation atomically consumes the invite
 
 Administrators get an **Admin** link in the navigation and three screens under `/admin`:
 
-- **Students** — add one student at a time. The invite code is generated and shown once with a copy button. The list shows each student's class, whether their invite has been redeemed, when they were last seen, and how much they have solved. **New code** issues a replacement if a code is lost.
-- **Classes** — create a class such as "Period 1" and move students in and out of it. Classes are optional and a student can belong to several.
-- **Submissions** — one row per student per challenge showing the status (solved, in progress, not started), the number of tries, and when they first tried, last tried and solved it. Every column sorts.
+- **Students** - add one student at a time. The invite code is generated and shown once with a copy button. The list shows each student's class, whether their invite has been redeemed, when they were last seen, and how much they have solved. **New code** issues a replacement if a code is lost.
+- **Classes** - create a class such as "Period 1" and move students in and out of it. Classes are optional and a student can belong to several.
+- **Submissions** - one row per student per challenge showing the status (solved, in progress, not started), the number of tries, and when they first tried, last tried and solved it. Every column sorts.
 
 Progress is scoped to the version of a challenge the student currently sees, so publishing a new version of a challenge shows that new version rather than a version that is no longer in play.
 

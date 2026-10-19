@@ -1,5 +1,5 @@
-import "./globals.css";
 import Link from "next/link";
+import "./globals.css";
 
 import { logoutAction } from "@/app/actions";
 import { getSessionUser } from "@/lib/auth";
@@ -100,7 +100,7 @@ export default async function Layout({
         </main>
         <footer className="border-t border-slate-200/80 py-6">
           <p className="mx-auto max-w-5xl px-5 text-xs text-slate-400">
-            Looplane — learn to program by solving short challenges. Never
+            Looplane - learn to program by solving short challenges. Never
             compiles or runs your code.
           </p>
         </footer>

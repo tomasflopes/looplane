@@ -4,7 +4,7 @@ import { listClasses, listStudents } from "@/lib/admin";
 import { requireAdmin } from "@/lib/admin-auth";
 
 function formatDate(value: Date | null) {
-  if (!value) return "—";
+  if (!value) return "-";
   return value.toLocaleString(undefined, {
     year: "numeric",
     month: "short",
@@ -72,7 +72,7 @@ export default async function AdminStudents() {
                             .map(className)
                             .filter(Boolean)
                             .join(", ")
-                        : "—"}
+                        : "-"}
                     </td>
                     <td className="px-4 py-3">
                       {!student.invitedAt ? (

@@ -6,7 +6,7 @@ import { listSubmissionRows } from "@/lib/admin";
 import { requireAdmin } from "@/lib/admin-auth";
 
 function formatTimestamp(value: Date | null) {
-  if (!value) return "—";
+  if (!value) return "-";
   const sameYear = value.getFullYear() === new Date().getFullYear();
   return value.toLocaleString(undefined, {
     year: sameYear ? undefined : "numeric",
