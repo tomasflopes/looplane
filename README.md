@@ -1,4 +1,4 @@
-# Looplane programming challenge MVP
+# Looplane programming challenge
 
 Looplane is a single Next.js + PostgreSQL application for students to solve short programming challenges by submitting **output text only**. It never compiles or executes student programs. Challenge definitions, generators, reference solvers, and Markdown live in the repository; PostgreSQL stores only product state and synchronized metadata.
 
