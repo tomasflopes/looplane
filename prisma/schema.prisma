@@ -1,0 +1,154 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  STUDENT
+}
+enum Difficulty {
+  beginner
+  intermediate
+  advanced
+}
+
+model User {
+  id String @id @default(cuid())
+  name String
+  email String @unique
+  passwordHash String?
+  role Role @default(STUDENT)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  interests StudentInterest[]
+  progress ChallengeProgress[]
+  submissions Submission[]
+  inviteCodes InviteCode[]
+  sessions Session[]
+  classMemberships ClassMembership[]
+}
+model Theme {
+  id String @id @default(cuid())
+  slug String @unique
+  name String
+  description String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  challenges Challenge[]
+  interests StudentInterest[]
+}
+model StudentInterest {
+  studentId String
+  themeId String
+  student User @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  theme Theme @relation(fields: [themeId], references: [id], onDelete: Cascade)
+  @@id([studentId, themeId])
+}
+model Challenge {
+  id String @id @default(cuid())
+  slug String @unique
+  themeId String
+  sequence Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  theme Theme @relation(fields: [themeId], references: [id], onDelete: Restrict)
+  versions ChallengeVersion[]
+  progress ChallengeProgress[]
+  submissions Submission[]
+  @@unique([themeId, sequence])
+  @@index([themeId, sequence])
+}
+model ChallengeVersion {
+  id String @id @default(cuid())
+  challengeId String
+  version Int
+  title String
+  subtitle String
+  difficulty Difficulty
+  publishedAt DateTime
+  sourcePath String
+  contentHash String?
+  inputType String
+  outputType String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Restrict)
+  progress ChallengeProgress[]
+  submissions Submission[]
+  @@unique([challengeId, version])
+  @@index([publishedAt])
+}
+model ChallengeProgress {
+  id String @id @default(cuid())
+  studentId String
+  challengeId String
+  challengeVersionId String
+  attempts Int @default(0)
+  firstAttemptAt DateTime?
+  lastAttemptAt DateTime?
+  solvedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  student User @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Restrict)
+  challengeVersion ChallengeVersion @relation(fields: [challengeVersionId], references: [id], onDelete: Restrict)
+  @@unique([studentId, challengeVersionId])
+  @@index([studentId])
+  @@index([challengeId])
+}
+model Submission {
+  id String @id @default(cuid())
+  studentId String
+  challengeId String
+  challengeVersionId String
+  answer String
+  correct Boolean
+  attemptNumber Int
+  submittedAt DateTime @default(now())
+  student User @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Restrict)
+  challengeVersion ChallengeVersion @relation(fields: [challengeVersionId], references: [id], onDelete: Restrict)
+  @@unique([studentId, challengeVersionId, attemptNumber])
+  @@index([studentId, challengeId])
+}
+model Class {
+  id String @id @default(cuid())
+  name String @unique
+  createdAt DateTime @default(now())
+  memberships ClassMembership[]
+}
+model ClassMembership {
+  classId String
+  studentId String
+  createdAt DateTime @default(now())
+  class Class @relation(fields: [classId], references: [id], onDelete: Cascade)
+  student User @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  @@id([classId, studentId])
+  @@index([studentId])
+}
+model InviteCode {
+  id String @id @default(cuid())
+  codeHash String @unique
+  studentId String
+  usedAt DateTime?
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+  student User @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  @@index([studentId])
+  @@index([expiresAt])
+}
+model Session {
+  id String @id @default(cuid())
+  userId String
+  tokenHash String @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@index([expiresAt])
+}

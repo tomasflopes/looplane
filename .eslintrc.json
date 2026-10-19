@@ -1,0 +1,24 @@
+{
+  "extends": ["next/core-web-vitals"],
+  "plugins": ["import"],
+  "rules": {
+    "import/newline-after-import": ["error", { "count": 1 }],
+    "import/order": [
+      "error",
+      {
+        "alphabetize": { "caseInsensitive": true, "order": "asc" },
+        "groups": [
+          "builtin",
+          "external",
+          "internal",
+          ["parent", "sibling", "index"]
+        ],
+        "newlines-between": "always",
+        "pathGroups": [{ "group": "internal", "pattern": "@/**" }],
+        "pathGroupsExcludedImportTypes": ["builtin"]
+      }
+    ],
+    "react-hooks/exhaustive-deps": "off",
+    "react/no-unescaped-entities": "off"
+  }
+}

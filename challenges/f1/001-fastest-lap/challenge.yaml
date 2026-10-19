@@ -1,0 +1,12 @@
+id: f1-001
+version: 1
+theme: f1
+sequence: 1
+title: The Fastest Lap
+subtitle: Find the fastest lap
+difficulty: beginner
+publishedAt: 2026-09-10T00:00:00Z
+input:
+  type: integer-list
+output:
+  type: integer

@@ -1,0 +1,88 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --color-brand-50: oklch(0.97 0.014 254);
+  --color-brand-100: oklch(0.93 0.033 254);
+  --color-brand-200: oklch(0.88 0.06 254);
+  --color-brand-300: oklch(0.8 0.09 254);
+  --color-brand-400: oklch(0.7 0.12 254);
+  --color-brand-500: oklch(0.62 0.15 254);
+  --color-brand-600: oklch(0.55 0.17 254);
+  --color-brand-700: oklch(0.48 0.16 254);
+  --color-brand-800: oklch(0.41 0.13 254);
+  --color-brand-900: oklch(0.35 0.1 254);
+
+  --font-mono:
+    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+}
+
+/*
+ * Element defaults live in the base layer so that utility classes on the same
+ * element win. Unlayered rules would otherwise beat every utility and force
+ * every link to be the same blue.
+ */
+@layer base {
+  body {
+    @apply bg-stone-50 text-slate-900 antialiased;
+    background-image: radial-gradient(
+      60rem 30rem at 50% -12rem,
+      oklch(0.93 0.033 254 / 0.7),
+      transparent 70%
+    );
+    background-repeat: no-repeat;
+  }
+  a {
+    @apply text-brand-700 hover:text-brand-900;
+  }
+  button {
+    @apply cursor-pointer;
+  }
+}
+
+/* Typography plugin handles prose; these are the Looplane specific tweaks. */
+.prose {
+  @apply prose-slate max-w-none prose-headings:font-semibold prose-headings:tracking-tight;
+}
+.prose pre {
+  @apply my-0 rounded-lg bg-slate-900 p-4 text-slate-50;
+}
+.prose pre code {
+  @apply bg-transparent p-0 text-inherit;
+}
+.prose code:not(pre code) {
+  @apply rounded bg-slate-200 px-1 py-0.5 font-mono text-[0.85em] text-slate-800;
+}
+
+/* Code block with a copy affordance. */
+.markdown-code-group {
+  @apply relative;
+}
+.markdown-code {
+  @apply relative;
+}
+.markdown-code-group > button {
+  @apply absolute top-2 right-2 rounded-md border border-slate-700 bg-slate-800/80 px-2 py-1 text-xs text-slate-200 opacity-0 transition hover:bg-slate-700 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:outline-none;
+}
+.markdown-code-group:hover > button,
+.markdown-code-group > button:focus-visible {
+  @apply opacity-100;
+}
+
+/* Shared building blocks. */
+@utility card {
+  @apply rounded-xl border border-slate-200 bg-white shadow-sm;
+}
+@utility eyebrow {
+  @apply font-mono text-xs tracking-[0.18em] text-brand-700 uppercase;
+}
+@utility btn-primary {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white no-underline shadow-sm transition hover:bg-slate-700 hover:text-white focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:outline-none;
+}
+@utility btn-secondary {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 no-underline transition hover:border-slate-400 hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:outline-none;
+}
+@utility badge {
+  @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 font-mono text-[0.7rem] font-medium tracking-wide uppercase;
+}

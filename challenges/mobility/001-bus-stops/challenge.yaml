@@ -1,0 +1,12 @@
+id: mobility-001
+version: 1
+theme: mobility
+sequence: 1
+title: Bus Stops
+subtitle: Count passengers at every stop
+difficulty: beginner
+publishedAt: 2026-09-10T00:00:00Z
+input:
+  type: integer-list
+output:
+  type: integer
