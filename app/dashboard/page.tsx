@@ -8,7 +8,8 @@ import {
   SparkIcon,
 } from "@/components/icons";
 import { requireUser } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { currentVersion } from "@/lib/challenges/versions";
+import { database } from "@/lib/container";
 import { getChallengeStatuses } from "@/lib/progress";
 
 function streakDays(solvedDates: Date[], now = new Date()) {
@@ -36,35 +37,23 @@ function streakDays(solvedDates: Date[], now = new Date()) {
 
 export default async function Dashboard() {
   const user = await requireUser();
-  const themes = await db.theme.findMany({
-    include: {
-      challenges: {
-        include: { versions: { orderBy: { version: "desc" }, take: 1 } },
-        orderBy: { sequence: "asc" },
-      },
-      interests: { where: { studentId: user.id } },
-    },
-  });
+  const themes = await database.themes.listWithChallenges(user.id);
   const ordered = [...themes].sort(
-    (a, b) =>
-      Number(Boolean(b.interests.length)) - Number(Boolean(a.interests.length)),
+    (a, b) => Number(b.interested) - Number(a.interested),
   );
 
   const versionIds = ordered.flatMap((theme) =>
     theme.challenges
-      .map((c) => c.versions[0]?.id)
+      .map((c) => currentVersion(c.versions)?.id)
       .filter((id): id is string => !!id),
   );
-  const statuses = await getChallengeStatuses(db, user.id, versionIds);
+  const statuses = await getChallengeStatuses(database, user.id, versionIds);
 
-  const solvedRows = await db.challengeProgress.findMany({
-    where: { studentId: user.id, solvedAt: { not: null } },
-    select: { challengeVersionId: true, solvedAt: true },
-  });
-  const solved = solvedRows.length;
-  const attempted = await db.challengeProgress.count({
-    where: { studentId: user.id },
-  });
+  const allProgress = await database.progress.listForStudent(user.id);
+  const solvedRows = allProgress.filter((p) => p.solvedAt);
+  // Per challenge, not per version: republishing must not double count.
+  const solved = new Set(solvedRows.map((r) => r.challengeId)).size;
+  const attempted = new Set(allProgress.map((r) => r.challengeId)).size;
   const streak = streakDays(
     solvedRows.map((r) => r.solvedAt!).filter(Boolean) as Date[],
   );
@@ -72,13 +61,15 @@ export default async function Dashboard() {
   let next: { slug: string; title: string; theme: string } | null = null;
   for (const theme of ordered)
     for (const c of theme.challenges) {
-      const v = c.versions[0];
+      const v = currentVersion(c.versions);
       if (v && statuses.get(v.id)?.kind === "AVAILABLE" && !next)
         next = { slug: c.slug, title: v.title, theme: theme.name };
     }
 
   const themeStats = ordered.map((theme) => {
-    const ids = theme.challenges.map((c) => c.versions[0]?.id).filter(Boolean);
+    const ids = theme.challenges
+      .map((c) => currentVersion(c.versions)?.id)
+      .filter(Boolean);
     const done = ids.filter(
       (id) => statuses.get(id as string)?.kind === "SOLVED",
     ).length;

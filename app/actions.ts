@@ -3,8 +3,15 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
-import { activateInvite, loginAdmin, logout, requireUser } from "@/lib/auth";
-import { db } from "@/lib/db";
+import {
+  activateInvite,
+  getSessionUser,
+  loginWithPassword,
+  logout,
+  requireUser,
+} from "@/lib/auth";
+import { database } from "@/lib/container";
+import { AuthError, setUserPassword } from "@/lib/credentials";
 import { submitAnswer } from "@/lib/submissions";
 
 /**
@@ -15,7 +22,10 @@ import { submitAnswer } from "@/lib/submissions";
  */
 function errorMessage(error: unknown, fallback: string) {
   if (error instanceof z.ZodError) return "Enter a valid value and try again.";
-  if (error instanceof Error) return error.message;
+  // Only our own AuthErrors are written for end users; anything else (a
+  // database error, say) must not leak its message into the page.
+  if (error instanceof AuthError) return error.message;
+  console.error(fallback, error);
   return fallback;
 }
 
@@ -29,15 +39,33 @@ export async function loginAction(_: { error: string }, form: FormData) {
   if (!error) redirect("/dashboard");
   return { error };
 }
-export async function adminLoginAction(_: { error: string }, form: FormData) {
+export async function passwordLoginAction(
+  _: { error: string },
+  form: FormData,
+) {
   let error = "";
   try {
-    await loginAdmin(
+    await loginWithPassword(
       z.string().email().parse(form.get("email")),
-      z.string().min(1).parse(form.get("password")),
+      z.string().min(1).max(200).parse(form.get("password")),
     );
   } catch (e) {
     error = errorMessage(e, "Unable to sign in.");
+  }
+  if (!error) redirect("/dashboard");
+  return { error };
+}
+export async function setPasswordAction(_: { error: string }, form: FormData) {
+  const user = await getSessionUser();
+  if (!user) redirect("/login");
+  let error = "";
+  try {
+    const password = z.string().max(200).parse(form.get("password"));
+    if (password !== form.get("confirm"))
+      throw new AuthError("The two passwords do not match.");
+    await setUserPassword(user.id, password);
+  } catch (e) {
+    error = errorMessage(e, "Unable to save the password.");
   }
   if (!error) redirect("/dashboard");
   return { error };
@@ -72,19 +100,7 @@ export async function submitAction(_: unknown, form: FormData) {
 export async function updateInterests(form: FormData) {
   const user = await requireUser();
   const ids = z.array(z.string()).parse(form.getAll("themes"));
-  const themes = await db.theme.findMany({
-    where: { id: { in: ids } },
-    select: { id: true },
-  });
-  const known = new Set(themes.map((t) => t.id));
-  const wanted = ids.filter((id) => known.has(id));
-  await db.$transaction([
-    db.studentInterest.deleteMany({ where: { studentId: user.id } }),
-    db.studentInterest.createMany({
-      data: wanted.map((themeId) => ({ studentId: user.id, themeId })),
-      skipDuplicates: true,
-    }),
-  ]);
+  await database.themes.replaceInterests(user.id, ids);
   revalidatePath("/dashboard");
   revalidatePath("/themes");
   redirect("/settings");

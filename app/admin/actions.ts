@@ -4,8 +4,13 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { requireAdmin } from "@/lib/admin-auth";
-import { db } from "@/lib/db";
-import { createInviteCode, hashInviteCode } from "@/lib/invites";
+import { database } from "@/lib/container";
+import {
+  createStudent,
+  deleteStudent,
+  issueInvite,
+  StudentExistsError,
+} from "@/lib/students";
 
 export type ActionResult = { ok: boolean; message: string };
 
@@ -36,44 +41,30 @@ export async function createStudentAction(
     };
   const { name, email, classId } = parsed.data;
 
-  const existing = await db.user.findUnique({ where: { email } });
-  if (existing)
-    return {
-      ok: false,
-      message: `${email} already exists. Issue a new invite code instead.`,
-    };
-
-  const inviteCode = createInviteCode();
-  const student = await db.$transaction(async (tx) => {
-    const created = await tx.user.create({
-      data: {
-        name,
-        email,
-        role: "STUDENT",
-        inviteCodes: {
-          create: { codeHash: hashInviteCode(inviteCode) },
-        },
-      },
+  try {
+    const { student, inviteCode } = await createStudent({
+      name,
+      email,
+      classId,
     });
-    if (classId) {
-      const target = await tx.class.findUnique({ where: { id: classId } });
-      if (target)
-        await tx.classMembership.create({
-          data: { classId: target.id, studentId: created.id },
-        });
-    }
-    return created;
-  });
-
-  revalidatePath("/admin/students");
-  revalidatePath("/admin/classes");
-  revalidatePath("/admin/submissions");
-  return {
-    ok: true,
-    message: `${name} added. Give them this invite code.`,
-    inviteCode,
-    studentId: student.id,
-  };
+    revalidatePath("/admin/students");
+    revalidatePath("/admin/classes");
+    revalidatePath("/admin/submissions");
+    return {
+      ok: true,
+      message: `${name} added. Give them this invite code.`,
+      inviteCode,
+      studentId: student.id,
+    };
+  } catch (error) {
+    if (error instanceof StudentExistsError)
+      return {
+        ok: false,
+        message: `${email} already exists. Issue a new invite code instead.`,
+      };
+    console.error("createStudentAction failed", error);
+    return { ok: false, message: "Unable to add this student." };
+  }
 }
 
 /**
@@ -86,17 +77,14 @@ export async function reissueInviteAction(
 ): Promise<ActionResult & { inviteCode?: string }> {
   await requireAdmin();
   const studentId = z.string().min(1).parse(form.get("studentId"));
-  const student = await db.user.findUnique({ where: { id: studentId } });
+  const student = await database.users.findById(studentId);
   if (!student) return { ok: false, message: "That student no longer exists." };
 
-  const inviteCode = createInviteCode();
-  await db.inviteCode.create({
-    data: { codeHash: hashInviteCode(inviteCode), studentId },
-  });
+  const inviteCode = await issueInvite(studentId);
   revalidatePath("/admin/students");
   return {
     ok: true,
-    message: `New invite code for ${student.name}.`,
+    message: `New invite code for ${student.name}. Using it resets their password.`,
     inviteCode,
   };
 }
@@ -117,13 +105,13 @@ export async function createClassAction(
       ok: false,
       message: name.error.issues[0]?.message ?? "Check the name.",
     };
-  const existing = await db.class.findUnique({ where: { name: name.data } });
+  const existing = await database.classes.findByName(name.data);
   if (existing)
     return {
       ok: false,
       message: `A class called "${name.data}" already exists.`,
     };
-  await db.class.create({ data: { name: name.data } });
+  await database.classes.create(name.data);
   revalidatePath("/admin/classes");
   revalidatePath("/admin/students");
   return { ok: true, message: `Created ${name.data}.` };
@@ -137,16 +125,12 @@ export async function addStudentToClassAction(
   const classId = z.string().min(1).parse(form.get("classId"));
   const studentId = z.string().min(1).parse(form.get("studentId"));
   const [target, student] = await Promise.all([
-    db.class.findUnique({ where: { id: classId } }),
-    db.user.findUnique({ where: { id: studentId } }),
+    database.classes.findById(classId),
+    database.users.findById(studentId),
   ]);
   if (!target || !student)
     return { ok: false, message: "That class or student no longer exists." };
-  await db.classMembership.upsert({
-    where: { classId_studentId: { classId, studentId } },
-    create: { classId, studentId },
-    update: {},
-  });
+  await database.classes.addMember(classId, studentId);
   revalidatePath("/admin/classes");
   revalidatePath("/admin/students");
   revalidatePath("/admin/submissions");
@@ -160,7 +144,7 @@ export async function removeStudentFromClassAction(
   await requireAdmin();
   const classId = z.string().min(1).parse(form.get("classId"));
   const studentId = z.string().min(1).parse(form.get("studentId"));
-  await db.classMembership.deleteMany({ where: { classId, studentId } });
+  await database.classes.removeMember(classId, studentId);
   revalidatePath("/admin/classes");
   revalidatePath("/admin/students");
   revalidatePath("/admin/submissions");
@@ -173,9 +157,26 @@ export async function deleteClassAction(
 ): Promise<ActionResult> {
   await requireAdmin();
   const classId = z.string().min(1).parse(form.get("classId"));
-  await db.class.delete({ where: { id: classId } });
+  await database.classes.delete(classId);
   revalidatePath("/admin/classes");
   revalidatePath("/admin/students");
   revalidatePath("/admin/submissions");
   redirect("/admin/classes");
+}
+
+export async function deleteStudentAction(
+  _: ActionResult,
+  form: FormData,
+): Promise<ActionResult> {
+  await requireAdmin();
+  const studentId = z.string().min(1).parse(form.get("studentId"));
+  const removed = await deleteStudent(studentId);
+  if (!removed) return { ok: false, message: "That student no longer exists." };
+  revalidatePath("/admin/students");
+  revalidatePath("/admin/classes");
+  revalidatePath("/admin/submissions");
+  return {
+    ok: true,
+    message: `Deleted ${removed.name} and all of their data.`,
+  };
 }

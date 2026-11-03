@@ -1,0 +1,7 @@
+# Automatic HTTPS. Enabled with: docker compose --profile tls up -d
+# DOMAIN must be a public hostname whose DNS points at this machine, with
+# ports 80 and 443 reachable.
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:3000
+}

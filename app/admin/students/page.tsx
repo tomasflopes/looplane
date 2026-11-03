@@ -1,3 +1,4 @@
+import { DeleteStudentButton } from "@/components/admin/delete-student-button";
 import { ReissueInviteButton } from "@/components/admin/reissue-invite-button";
 import { StudentForm } from "@/components/admin/student-form";
 import { listClasses, listStudents } from "@/lib/admin";
@@ -99,10 +100,16 @@ export default async function AdminStudents() {
                       {student.attemptsCount}
                     </td>
                     <td className="px-4 py-3">
-                      <ReissueInviteButton
-                        studentId={student.id}
-                        studentName={student.name}
-                      />
+                      <div className="flex items-center gap-4">
+                        <ReissueInviteButton
+                          studentId={student.id}
+                          studentName={student.name}
+                        />
+                        <DeleteStudentButton
+                          studentId={student.id}
+                          studentName={student.name}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))}

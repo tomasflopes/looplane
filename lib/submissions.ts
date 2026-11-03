@@ -1,5 +1,6 @@
 import { findChallenge } from "@/lib/challenges/loader";
-import { db } from "@/lib/db";
+import { currentVersion } from "@/lib/challenges/versions";
+import { database } from "@/lib/container";
 import { getChallengeStatus } from "@/lib/progress";
 import { challengeRng } from "@/lib/rng";
 import { numericDirection, validateAnswer } from "@/lib/validation";
@@ -19,18 +20,23 @@ export async function submitAnswer(
   challengeVersionId: string,
   answer: string,
 ): Promise<SubmissionResult> {
-  return db
-    .$transaction(
-      async (tx) => {
-        // `$executeRaw`, not `$queryRaw`: pg_advisory_xact_lock returns void and
-        // Prisma cannot deserialize a void column.
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${studentId + ":" + challengeVersionId}))`;
-        const version = await tx.challengeVersion.findUniqueOrThrow({
-          where: { id: challengeVersionId },
-          include: { challenge: true },
-        });
+  return database
+    .transaction(
+      async (r) => {
+        const version = await r.challenges.findVersion(challengeVersionId);
+        if (!version) throw new Error("Challenge version not found");
+        // A page left open across a republish still points at the old version.
+        const current = currentVersion(
+          await r.challenges.listVersions(version.challengeId),
+        );
+        if (current && current.id !== version.id)
+          return {
+            ok: false,
+            message:
+              "This challenge was updated. Reload the page to get the new version.",
+          };
         const status = await getChallengeStatus(
-          tx,
+          r,
           studentId,
           challengeVersionId,
         );
@@ -42,11 +48,7 @@ export async function submitAnswer(
                 ? "This challenge has already been solved."
                 : "This challenge is not available yet.",
           };
-        let progress = await tx.challengeProgress.findUnique({
-          where: {
-            studentId_challengeVersionId: { studentId, challengeVersionId },
-          },
-        });
+        const progress = await r.progress.find(studentId, challengeVersionId);
         const now = new Date();
         if (progress?.lastAttemptAt) {
           const left =
@@ -68,37 +70,21 @@ export async function submitAnswer(
           expected,
           definition.metadata.output.type,
         );
-        const attempt = (progress?.attempts ?? 0) + 1;
-        if (!progress)
-          progress = await tx.challengeProgress.create({
-            data: {
-              studentId,
-              challengeId: version.challengeId,
-              challengeVersionId,
-              attempts: attempt,
-              firstAttemptAt: now,
-              lastAttemptAt: now,
-              solvedAt: correct ? now : null,
-            },
-          });
-        else
-          progress = await tx.challengeProgress.update({
-            where: { id: progress.id },
-            data: {
-              attempts: attempt,
-              lastAttemptAt: now,
-              ...(correct ? { solvedAt: now } : {}),
-            },
-          });
-        await tx.submission.create({
-          data: {
-            studentId,
-            challengeId: version.challengeId,
-            challengeVersionId,
-            answer,
-            correct,
-            attemptNumber: attempt,
-          },
+        const recorded = await r.progress.recordAttempt({
+          studentId,
+          challengeId: version.challengeId,
+          challengeVersionId,
+          now,
+          solved: correct,
+        });
+        const attempt = recorded.attempts;
+        await r.submissions.create({
+          studentId,
+          challengeId: version.challengeId,
+          challengeVersionId,
+          answer,
+          correct,
+          attemptNumber: attempt,
         });
         if (correct)
           return {
@@ -128,10 +114,11 @@ export async function submitAnswer(
                 : "Incorrect.",
         };
       },
-      // READ COMMITTED on purpose. The advisory lock above is what serialises a
-      // student's submissions; under SERIALIZABLE the snapshot is taken before
-      // the lock is granted, so the waiter reads stale progress and Postgres
-      // aborts it with 40001.
+      // One student's submissions to one challenge run one at a time, and the
+      // others wait. (The Postgres adapter does this with an advisory lock at
+      // READ COMMITTED: under SERIALIZABLE the snapshot is taken before the
+      // lock is granted, so a waiter would read stale progress and abort.)
+      { serializeOn: `${studentId}:${challengeVersionId}` },
     )
     .catch((error) => {
       console.error("Submission failed", error);

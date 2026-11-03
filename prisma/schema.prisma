@@ -3,7 +3,12 @@ generator client {
 }
 datasource db {
   provider = "postgresql"
+  // Pooled connection used by the running app (Supabase: transaction pooler,
+  // port 6543, with ?pgbouncer=true).
   url = env("DATABASE_URL")
+  // Direct/session connection used only by `prisma migrate`, which needs
+  // session-level locks that a transaction pooler cannot provide.
+  directUrl = env("DIRECT_URL")
 }
 
 enum Role {
@@ -151,4 +156,12 @@ model Session {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   @@index([userId])
   @@index([expiresAt])
+}
+
+/// Failed password attempts per (hashed) email, in a fixed window. Lives in the
+/// database so the limit holds across restarts and across app replicas.
+model LoginThrottle {
+  key         String   @id
+  attempts    Int      @default(0)
+  windowStart DateTime @default(now())
 }

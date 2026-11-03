@@ -2,11 +2,19 @@
   "extends": ["next/core-web-vitals"],
   "plugins": ["import"],
   "rules": {
-    "import/newline-after-import": ["error", { "count": 1 }],
+    "import/newline-after-import": [
+      "error",
+      {
+        "count": 1
+      }
+    ],
     "import/order": [
       "error",
       {
-        "alphabetize": { "caseInsensitive": true, "order": "asc" },
+        "alphabetize": {
+          "caseInsensitive": true,
+          "order": "asc"
+        },
         "groups": [
           "builtin",
           "external",
@@ -14,11 +22,43 @@
           ["parent", "sibling", "index"]
         ],
         "newlines-between": "always",
-        "pathGroups": [{ "group": "internal", "pattern": "@/**" }],
+        "pathGroups": [
+          {
+            "group": "internal",
+            "pattern": "@/**"
+          }
+        ],
         "pathGroupsExcludedImportTypes": ["builtin"]
       }
     ],
     "react-hooks/exhaustive-deps": "off",
-    "react/no-unescaped-entities": "off"
-  }
+    "react/no-unescaped-entities": "off",
+    "no-restricted-imports": [
+      "error",
+      {
+        "patterns": [
+          {
+            "group": ["@prisma/client", "@prisma/client/*"],
+            "message": "Only lib/adapters/prisma may import Prisma. Use the ports in lib/ports via `database` from @/lib/container."
+          },
+          {
+            "group": [
+              "@/lib/adapters/*",
+              "**/lib/adapters/*",
+              "**/adapters/prisma/*"
+            ],
+            "message": "Import `database` from @/lib/container instead of reaching into an adapter."
+          }
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["lib/adapters/**", "lib/container.ts", "tests/adapters/**"],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    }
+  ]
 }

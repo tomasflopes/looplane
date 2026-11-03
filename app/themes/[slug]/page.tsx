@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 
 import { StatusBadge } from "@/components/status-badge";
 import { requireUser } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { currentVersion } from "@/lib/challenges/versions";
+import { database } from "@/lib/container";
 import { getChallengeStatuses } from "@/lib/progress";
 
 export default async function ThemePage({
@@ -12,21 +13,15 @@ export default async function ThemePage({
   params: Promise<{ slug: string }>;
 }) {
   const user = await requireUser();
-  const theme = await db.theme.findUnique({
-    where: { slug: (await params).slug },
-    include: {
-      challenges: {
-        orderBy: { sequence: "asc" },
-        include: { versions: { orderBy: { version: "desc" }, take: 1 } },
-      },
-    },
-  });
+  const theme = await database.themes.findBySlugWithChallenges(
+    (await params).slug,
+  );
   if (!theme) notFound();
 
   const versionIds = theme.challenges
-    .map((c) => c.versions[0]?.id)
+    .map((c) => currentVersion(c.versions)?.id)
     .filter((id): id is string => !!id);
-  const statuses = await getChallengeStatuses(db, user.id, versionIds);
+  const statuses = await getChallengeStatuses(database, user.id, versionIds);
   const solved = versionIds.filter(
     (id) => statuses.get(id)?.kind === "SOLVED",
   ).length;
@@ -67,7 +62,7 @@ export default async function ThemePage({
       ) : (
         <ol className="mt-8 space-y-3">
           {theme.challenges.map((c) => {
-            const v = c.versions[0];
+            const v = currentVersion(c.versions);
             if (!v) return null;
             const status = statuses.get(v.id);
             const locked =

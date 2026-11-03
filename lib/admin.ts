@@ -1,4 +1,5 @@
-import { db } from "@/lib/db";
+import { currentVersion } from "@/lib/challenges/versions";
+import { database } from "@/lib/container";
 import "server-only";
 
 export type AdminStudent = {
@@ -20,36 +21,17 @@ export type AdminStudent = {
  * were last seen, and how much they have solved.
  */
 export async function listStudents(): Promise<AdminStudent[]> {
-  const students = await db.user.findMany({
-    where: { role: "STUDENT" },
-    orderBy: { name: "asc" },
-    include: {
-      classMemberships: { select: { classId: true } },
-      sessions: {
-        select: { lastUsedAt: true },
-        orderBy: { lastUsedAt: "desc" },
-        take: 1,
-      },
-      inviteCodes: {
-        select: { usedAt: true, createdAt: true },
-        orderBy: { createdAt: "desc" },
-      },
-      progress: { select: { solvedAt: true, attempts: true } },
-    },
-  });
-  return students.map((student) => ({
-    id: student.id,
-    name: student.name,
-    email: student.email,
-    createdAt: student.createdAt,
-    classIds: student.classMemberships.map((m) => m.classId),
-    invitedAt: student.inviteCodes[0]?.createdAt ?? null,
-    // The most recent redemption of any code, not just the newest one: a
-    // replacement code is issued on top of an already redeemed invite.
-    inviteUsedAt: student.inviteCodes.find((i) => i.usedAt)?.usedAt ?? null,
-    lastActiveAt: student.sessions[0]?.lastUsedAt ?? null,
-    solvedCount: student.progress.filter((p) => p.solvedAt).length,
-    attemptsCount: student.progress.reduce((sum, p) => sum + p.attempts, 0),
+  return (await database.reports.studentRollups()).map((r) => ({
+    id: r.user.id,
+    name: r.user.name,
+    email: r.user.email,
+    createdAt: r.user.createdAt,
+    classIds: r.classIds,
+    invitedAt: r.invitedAt,
+    inviteUsedAt: r.inviteUsedAt,
+    lastActiveAt: r.lastActiveAt,
+    solvedCount: r.solvedCount,
+    attemptsCount: r.attemptsCount,
   }));
 }
 
@@ -60,18 +42,8 @@ export type AdminClass = {
   memberIds: string[];
 };
 
-export async function listClasses(): Promise<AdminClass[]> {
-  const classes = await db.class.findMany({
-    orderBy: { name: "asc" },
-    include: { memberships: { select: { studentId: true } } },
-  });
-  return classes.map((c) => ({
-    id: c.id,
-    name: c.name,
-    createdAt: c.createdAt,
-    memberIds: c.memberships.map((m) => m.studentId),
-  }));
-}
+export const listClasses = (): Promise<AdminClass[]> =>
+  database.classes.listWithMemberIds();
 
 export type SubmissionRow = {
   studentId: string;
@@ -91,7 +63,7 @@ export type SubmissionRow = {
 };
 
 /**
- * One row per student per challenge for the latest version of each challenge.
+ * One row per student per challenge for the current version of each challenge.
  *
  * Progress is scoped to the version the student currently sees: if a teacher
  * publishes a new version of a challenge, the row reflects that new version
@@ -99,31 +71,17 @@ export type SubmissionRow = {
  */
 export async function listSubmissionRows(): Promise<SubmissionRow[]> {
   const [students, challenges] = await Promise.all([
-    db.user.findMany({
-      where: { role: "STUDENT" },
-      orderBy: { name: "asc" },
-      include: {
-        classMemberships: { include: { class: { select: { name: true } } } },
-        progress: true,
-      },
-    }),
-    db.challenge.findMany({
-      orderBy: [{ theme: { name: "asc" } }, { sequence: "asc" }],
-      include: {
-        theme: { select: { name: true, slug: true } },
-        versions: { orderBy: { version: "desc" }, take: 1 },
-      },
-    }),
+    database.reports.studentProgress(),
+    database.challenges.listAll(),
   ]);
 
   const rows: SubmissionRow[] = [];
-  for (const student of students) {
+  for (const { student, classNames, progress: all } of students) {
     const progressByVersion = new Map(
-      student.progress.map((p) => [p.challengeVersionId, p]),
+      all.map((p) => [p.challengeVersionId, p]),
     );
-    const classNames = student.classMemberships.map((m) => m.class.name);
     for (const challenge of challenges) {
-      const version = challenge.versions[0];
+      const version = currentVersion(challenge.versions);
       if (!version) continue;
       const progress = progressByVersion.get(version.id);
       const status: SubmissionRow["status"] = progress?.solvedAt

@@ -1,0 +1,46 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: challs_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/challs_test?schema=public
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/challs_test?schema=public
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/challs_test?schema=public
+      SESSION_SECRET: ci-session-secret-0123456789abcdef
+      CHALLENGE_SERVER_SECRET: ci-challenge-secret-0123456789abcd
+      ADMIN_NAME: CI Admin
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: ci-admin-password-123
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec prisma generate
+      - run: pnpm run db:deploy
+      - run: pnpm run db:seed
+      - run: pnpm run challenges:validate
+      - run: pnpm run challenges:sync
+      - run: pnpm run format:check
+      - run: pnpm run lint
+      - run: pnpm exec tsc --noEmit
+      - run: pnpm test
+      - run: pnpm run build

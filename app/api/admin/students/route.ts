@@ -2,12 +2,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getSessionUser } from "@/lib/auth";
-import { db } from "@/lib/db";
-import { createInviteCode, hashInviteCode } from "@/lib/invites";
+import { createStudent, StudentExistsError } from "@/lib/students";
 
 const schema = z.object({
-  name: z.string().min(1).max(120),
-  email: z.string().email().max(254),
+  name: z.string().trim().min(1).max(120),
+  email: z.string().trim().email().max(254),
   expiresAt: z.string().datetime().optional(),
 });
 export async function POST(request: Request) {
@@ -16,27 +15,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (user.role !== "ADMIN")
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const parsed = schema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success)
+    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   try {
-    const input = schema.parse(await request.json());
-    const inviteCode = createInviteCode();
-    const student = await db.$transaction(async (tx) => {
-      const existing = await tx.user.findUnique({
-        where: { email: input.email },
-      });
-      if (existing) throw new Error("A user with this email already exists.");
-      return tx.user.create({
-        data: {
-          name: input.name,
-          email: input.email,
-          role: "STUDENT",
-          inviteCodes: {
-            create: {
-              codeHash: hashInviteCode(inviteCode),
-              expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
-            },
-          },
-        },
-      });
+    const { student, inviteCode } = await createStudent({
+      ...parsed.data,
+      expiresAt: parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : null,
     });
     return NextResponse.json(
       {
@@ -46,9 +31,9 @@ export async function POST(request: Request) {
       { status: 201 },
     );
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Invalid request" },
-      { status: 400 },
-    );
+    if (error instanceof StudentExistsError)
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    console.error("POST /api/admin/students failed", error);
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 }

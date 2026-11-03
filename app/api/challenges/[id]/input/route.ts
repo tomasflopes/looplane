@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 
 import { getSessionUser } from "@/lib/auth";
 import { findChallenge } from "@/lib/challenges/loader";
-import { db } from "@/lib/db";
+import { currentVersion } from "@/lib/challenges/versions";
+import { database } from "@/lib/container";
 import { getChallengeStatus } from "@/lib/progress";
 import { challengeRng } from "@/lib/rng";
 
@@ -14,15 +15,12 @@ export async function GET(
   if (!user) return new Response("Unauthorized\n", { status: 401 });
 
   const { id } = await params;
-  const row = await db.challenge.findUnique({
-    where: { slug: id },
-    include: { versions: { orderBy: { version: "desc" }, take: 1 } },
-  });
-  const version = row?.versions[0];
+  const row = await database.challenges.findBySlug(id);
+  const version = row && currentVersion(row.versions);
   if (!row || !version)
     return new Response("Challenge not found\n", { status: 404 });
 
-  const status = await getChallengeStatus(db, user.id, version.id);
+  const status = await getChallengeStatus(database, user.id, version.id);
   if (status.kind !== "AVAILABLE" && status.kind !== "SOLVED") {
     return new Response("Challenge is not available\n", { status: 403 });
   }

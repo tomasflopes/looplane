@@ -4,7 +4,7 @@ import {
   validateDefinitions,
 } from "../lib/challenges/authoring";
 import { loadChallenges } from "../lib/challenges/loader";
-import { db } from "../lib/db";
+import { database } from "../lib/container";
 
 async function main() {
   const command = process.argv[2];
@@ -26,14 +26,12 @@ async function main() {
 
   for (const definition of definitions) {
     const m = definition.metadata;
-    const theme = await db.theme.findUnique({ where: { slug: m.theme } });
+    const theme = await database.themes.findBySlug(m.theme);
     if (!theme)
       throw new Error(
         `Challenge ${m.id} refers to unknown theme ${m.theme}. Seed themes first.`,
       );
-    const existingChallenge = await db.challenge.findUnique({
-      where: { slug: m.id },
-    });
+    const existingChallenge = await database.challenges.findBySlug(m.id);
     if (
       existingChallenge &&
       (existingChallenge.themeId !== theme.id ||
@@ -44,14 +42,15 @@ async function main() {
       );
     const challenge =
       existingChallenge ??
-      (await db.challenge.create({
-        data: { slug: m.id, themeId: theme.id, sequence: m.sequence },
+      (await database.challenges.create({
+        slug: m.id,
+        themeId: theme.id,
+        sequence: m.sequence,
       }));
-    const existing = await db.challengeVersion.findUnique({
-      where: {
-        challengeId_version: { challengeId: challenge.id, version: m.version },
-      },
-    });
+    const existing = await database.challenges.findVersionByNumber(
+      challenge.id,
+      m.version,
+    );
     const data = {
       title: m.title,
       subtitle: m.subtitle,
@@ -74,13 +73,15 @@ async function main() {
         throw new Error(
           `Challenge ${m.id}@${m.version} changed on disk (problem, solution, generator or solver). Published versions are immutable; create a new version.`,
         );
-      await db.challengeVersion.update({
-        where: { id: existing.id },
-        data: { sourcePath: data.sourcePath, contentHash: data.contentHash },
+      await database.challenges.updateVersionSource(existing.id, {
+        sourcePath: data.sourcePath,
+        contentHash: data.contentHash,
       });
     } else
-      await db.challengeVersion.create({
-        data: { challengeId: challenge.id, version: m.version, ...data },
+      await database.challenges.createVersion({
+        challengeId: challenge.id,
+        version: m.version,
+        ...data,
       });
   }
   console.log(`Synchronized ${definitions.length} challenge definitions.`);
@@ -90,4 +91,4 @@ main()
     console.error(error instanceof Error ? error.message : error);
     process.exit(1);
   })
-  .finally(() => db.$disconnect());
+  .finally(() => database.disconnect());

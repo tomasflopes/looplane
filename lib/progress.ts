@@ -1,6 +1,4 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
-
-import { db } from "@/lib/db";
+import type { Repositories } from "@/lib/ports";
 import "server-only";
 
 export type ChallengeStatus =
@@ -10,71 +8,43 @@ export type ChallengeStatus =
   | { kind: "SOLVED"; solvedAt: Date };
 
 /**
- * Either the pooled client or an open transaction. Passing the transaction
- * keeps availability checks inside the same snapshot as the write that depends
- * on them.
- */
-export type DbClient = PrismaClient | Prisma.TransactionClient;
-
-/**
  * Resolve the availability of a single challenge version for a student.
+ *
+ * Takes the repositories to read through, so a caller inside a transaction
+ * passes that transaction's repositories and the check sees the same snapshot
+ * as the write that depends on it.
  *
  * The rules, in order:
  *   1. A version published in the future is locked.
  *   2. A version already solved is solved.
  *   3. The first challenge of a theme is always available.
  *   4. Every later challenge requires the previous challenge of the same theme
- *      to be solved.
+ *      to be solved, in ANY of its versions. Otherwise publishing a v2 would
+ *      re-lock everything after it for students who had already got past it.
  */
 export async function getChallengeStatus(
-  client: DbClient,
+  repositories: Repositories,
   studentId: string,
   challengeVersionId: string,
   now = new Date(),
 ): Promise<ChallengeStatus> {
-  const version = await client.challengeVersion.findUniqueOrThrow({
-    where: { id: challengeVersionId },
-    include: { challenge: true },
-  });
-  if (version.publishedAt > now)
-    return { kind: "LOCKED_NOT_PUBLISHED", publishedAt: version.publishedAt };
-  const own = await client.challengeProgress.findUnique({
-    where: { studentId_challengeVersionId: { studentId, challengeVersionId } },
-  });
-  if (own?.solvedAt) return { kind: "SOLVED", solvedAt: own.solvedAt };
-  if (version.challenge.sequence === 1) return { kind: "AVAILABLE" };
-  const previous = await client.challenge.findFirst({
-    where: {
-      themeId: version.challenge.themeId,
-      sequence: version.challenge.sequence - 1,
-    },
-    include: { versions: { orderBy: { version: "desc" }, take: 1 } },
-  });
-  // No previous challenge means this is the head of its own chain. Content
-  // authoring keeps sequences contiguous, so this is only a safety net.
-  if (!previous) return { kind: "AVAILABLE" };
-  const previousVersion = previous.versions[0];
-  const progress =
-    previousVersion &&
-    (await client.challengeProgress.findUnique({
-      where: {
-        studentId_challengeVersionId: {
-          studentId,
-          challengeVersionId: previousVersion.id,
-        },
-      },
-    }));
-  return progress?.solvedAt
-    ? { kind: "AVAILABLE" }
-    : { kind: "LOCKED_PREVIOUS_CHALLENGE", previousChallengeId: previous.slug };
+  const statuses = await getChallengeStatuses(
+    repositories,
+    studentId,
+    [challengeVersionId],
+    now,
+  );
+  const status = statuses.get(challengeVersionId);
+  if (!status) throw new Error("Challenge version not found");
+  return status;
 }
 
 /**
- * Resolve the availability of many challenge versions with a fixed number of
- * queries, so listing pages do not fan out one request per challenge.
+ * The same rules for many versions at once, with a fixed number of queries,
+ * so listing pages do not fan out one request per challenge.
  */
 export async function getChallengeStatuses(
-  client: DbClient,
+  repositories: Repositories,
   studentId: string,
   challengeVersionIds: string[],
   now = new Date(),
@@ -82,89 +52,55 @@ export async function getChallengeStatuses(
   const statuses = new Map<string, ChallengeStatus>();
   if (!challengeVersionIds.length) return statuses;
 
-  const versions = await client.challengeVersion.findMany({
-    where: { id: { in: challengeVersionIds } },
-    include: { challenge: true },
-  });
-  const byId = new Map(versions.map((v) => [v.id, v]));
-
-  const progress = await client.challengeProgress.findMany({
-    where: { studentId, challengeVersionId: { in: challengeVersionIds } },
-  });
+  const versions =
+    await repositories.challenges.findVersions(challengeVersionIds);
+  const progress = await repositories.progress.findMany(
+    studentId,
+    challengeVersionIds,
+  );
   const progressByVersion = new Map(
     progress.map((p) => [p.challengeVersionId, p]),
   );
 
-  // Previous challenges of the same theme, at most one per target.
-  const needed = new Map<string, string>();
-  for (const version of versions) {
-    if (version.challenge.sequence <= 1) continue;
-    needed.set(
-      version.id,
-      `${version.challenge.themeId}:${version.challenge.sequence - 1}`,
-    );
-  }
   const themeIds = [...new Set(versions.map((v) => v.challenge.themeId))];
-  const previousChallenges = await client.challenge.findMany({
-    where: { themeId: { in: themeIds } },
-    orderBy: { sequence: "asc" },
-    include: { versions: { orderBy: { version: "desc" }, take: 1 } },
-  });
-  const previousByKey = new Map(
-    previousChallenges.map((c) => [`${c.themeId}:${c.sequence}`, c]),
+  const siblings = await repositories.challenges.listByThemes(themeIds);
+  const byKey = new Map(siblings.map((c) => [`${c.themeId}:${c.sequence}`, c]));
+  const previousOf = (v: (typeof versions)[number]) =>
+    byKey.get(`${v.challenge.themeId}:${v.challenge.sequence - 1}`);
+  const solvedPrevious = await repositories.progress.solvedChallengeIds(
+    studentId,
+    versions
+      .map((v) => previousOf(v)?.id)
+      .filter((id): id is string => Boolean(id)),
   );
 
-  const previousVersionIds = [
-    ...new Set(
-      [...needed.values()]
-        .map((key) => previousByKey.get(key)?.versions[0]?.id)
-        .filter((id): id is string => Boolean(id)),
-    ),
-  ];
-  const previousProgress = previousVersionIds.length
-    ? await client.challengeProgress.findMany({
-        where: {
-          studentId,
-          challengeVersionId: { in: previousVersionIds },
-        },
-      })
-    : [];
-  const solvedPrevious = new Set(
-    previousProgress.filter((p) => p.solvedAt).map((p) => p.challengeVersionId),
-  );
-
-  for (const id of challengeVersionIds) {
-    const version = byId.get(id);
-    if (!version) continue;
+  for (const version of versions) {
     if (version.publishedAt > now) {
-      statuses.set(id, {
+      statuses.set(version.id, {
         kind: "LOCKED_NOT_PUBLISHED",
         publishedAt: version.publishedAt,
       });
       continue;
     }
-    const own = progressByVersion.get(id);
+    const own = progressByVersion.get(version.id);
     if (own?.solvedAt) {
-      statuses.set(id, { kind: "SOLVED", solvedAt: own.solvedAt });
+      statuses.set(version.id, { kind: "SOLVED", solvedAt: own.solvedAt });
       continue;
     }
     if (version.challenge.sequence === 1) {
-      statuses.set(id, { kind: "AVAILABLE" });
+      statuses.set(version.id, { kind: "AVAILABLE" });
       continue;
     }
-    const key = needed.get(id)!;
-    const previousVersion = previousByKey.get(key)?.versions[0];
-    if (!previousVersion) {
-      statuses.set(id, { kind: "AVAILABLE" });
-      continue;
-    }
+    // No previous challenge means this is the head of its own chain. Content
+    // authoring keeps sequences contiguous, so this is only a safety net.
+    const previous = previousOf(version);
     statuses.set(
-      id,
-      solvedPrevious.has(previousVersion.id)
+      version.id,
+      !previous || solvedPrevious.has(previous.id)
         ? { kind: "AVAILABLE" }
         : {
             kind: "LOCKED_PREVIOUS_CHALLENGE",
-            previousChallengeId: previousByKey.get(key)!.slug,
+            previousChallengeId: previous.slug,
           },
     );
   }

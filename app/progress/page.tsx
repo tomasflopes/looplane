@@ -2,26 +2,25 @@ import Link from "next/link";
 
 import { CheckIcon } from "@/components/icons";
 import { requireUser } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { database } from "@/lib/container";
 
 export default async function ProgressPage() {
   const user = await requireUser();
-  const themes = await db.theme.findMany({
-    include: {
-      challenges: {
-        include: { versions: { orderBy: { version: "desc" }, take: 1 } },
-      },
-    },
-    orderBy: { name: "asc" },
-  });
-  const progress = await db.challengeProgress.findMany({
-    where: { studentId: user.id },
-  });
-  const solved = progress.filter((p) => p.solvedAt);
-  const solvedVersions = await db.challengeVersion.findMany({
-    where: { id: { in: solved.map((p) => p.challengeVersionId) } },
-    include: { challenge: { include: { theme: true } } },
-  });
+  const themes = await database.themes.listWithChallenges();
+  const progress = await database.progress.listForStudent(user.id);
+  // Progress is stored per version, but a student solves a challenge once:
+  // count challenges, not versions, so a republished challenge is not counted
+  // twice.
+  const solvedChallengeIds = new Set(
+    progress.filter((p) => p.solvedAt).map((p) => p.challengeId),
+  );
+  const attemptedCount = new Set(progress.map((p) => p.challengeId)).size;
+  const solvedPerChallenge = new Map<string, string>();
+  for (const p of progress)
+    if (p.solvedAt) solvedPerChallenge.set(p.challengeId, p.challengeVersionId);
+  const solvedVersions = await database.challenges.findVersions([
+    ...solvedPerChallenge.values(),
+  ]);
 
   return (
     <>
@@ -36,7 +35,7 @@ export default async function ProgressPage() {
             Solved
           </p>
           <p className="mt-1 text-3xl font-bold tabular-nums">
-            {solved.length}
+            {solvedChallengeIds.size}
           </p>
         </div>
         <div className="card p-5">
@@ -44,7 +43,7 @@ export default async function ProgressPage() {
             Attempted
           </p>
           <p className="mt-1 text-3xl font-bold tabular-nums">
-            {progress.length}
+            {attemptedCount}
           </p>
         </div>
         <div className="card p-5">
@@ -61,11 +60,8 @@ export default async function ProgressPage() {
         <h2 className="text-xl font-semibold">By theme</h2>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           {themes.map((t) => {
-            const ids = t.challenges.flatMap((c) =>
-              c.versions.map((v) => v.id),
-            );
-            const count = solved.filter((p) =>
-              ids.includes(p.challengeVersionId),
+            const count = t.challenges.filter((c) =>
+              solvedChallengeIds.has(c.id),
             ).length;
             const percent = t.challenges.length
               ? (count / t.challenges.length) * 100

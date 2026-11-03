@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 
-import { db } from "../lib/db";
+import { database } from "../lib/container";
+import { normalizeEmail, passwordProblem } from "../lib/password";
 
 async function main() {
   const themes = [
@@ -21,32 +22,22 @@ async function main() {
       description: "Challenges coming soon.",
     },
   ];
-  for (const theme of themes)
-    await db.theme.upsert({
-      where: { slug: theme.slug },
-      create: theme,
-      update: { name: theme.name, description: theme.description },
-    });
+  for (const theme of themes) await database.themes.upsert(theme);
   const { ADMIN_NAME, ADMIN_EMAIL, ADMIN_PASSWORD } = process.env;
   if (!ADMIN_NAME || !ADMIN_EMAIL || !ADMIN_PASSWORD)
     throw new Error(
       "ADMIN_NAME, ADMIN_EMAIL, and ADMIN_PASSWORD are required for seeding.",
     );
-  await db.user.upsert({
-    where: { email: ADMIN_EMAIL },
-    create: {
-      name: ADMIN_NAME,
-      email: ADMIN_EMAIL,
-      role: "ADMIN",
-      passwordHash: await bcrypt.hash(ADMIN_PASSWORD, 12),
-    },
-    update: {
-      name: ADMIN_NAME,
-      role: "ADMIN",
-      // Keep the stored hash in step with the environment, otherwise changing
-      // ADMIN_PASSWORD silently leaves the old one working.
-      passwordHash: await bcrypt.hash(ADMIN_PASSWORD, 12),
-    },
+  const problem = passwordProblem(ADMIN_PASSWORD);
+  if (problem) throw new Error(`ADMIN_PASSWORD rejected: ${problem}`);
+  const adminEmail = normalizeEmail(ADMIN_EMAIL);
+  // Keep the stored hash in step with the environment, otherwise changing
+  // ADMIN_PASSWORD silently leaves the old one working.
+  await database.users.upsertByEmail({
+    name: ADMIN_NAME,
+    email: adminEmail,
+    role: "ADMIN",
+    passwordHash: await bcrypt.hash(ADMIN_PASSWORD, 12),
   });
   console.log(
     "Seeded themes and admin user. Run pnpm run challenges:sync next.",
@@ -57,4 +48,4 @@ main()
     console.error(error);
     process.exit(1);
   })
-  .finally(() => db.$disconnect());
+  .finally(() => database.disconnect());

@@ -1,25 +1,19 @@
 import Link from "next/link";
 
 import { requireUser } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { currentVersion } from "@/lib/challenges/versions";
+import { database } from "@/lib/container";
 import { getChallengeStatuses } from "@/lib/progress";
 
 export default async function Themes() {
   const user = await requireUser();
-  const themes = await db.theme.findMany({
-    include: {
-      challenges: {
-        include: { versions: { orderBy: { version: "desc" }, take: 1 } },
-      },
-    },
-    orderBy: { name: "asc" },
-  });
+  const themes = await database.themes.listWithChallenges();
   const versionIds = themes.flatMap((t) =>
     t.challenges
-      .map((c) => c.versions[0]?.id)
+      .map((c) => currentVersion(c.versions)?.id)
       .filter((id): id is string => !!id),
   );
-  const statuses = await getChallengeStatuses(db, user.id, versionIds);
+  const statuses = await getChallengeStatuses(database, user.id, versionIds);
 
   return (
     <>
@@ -35,7 +29,7 @@ export default async function Themes() {
       <div className="mt-8 grid gap-3 sm:grid-cols-2">
         {themes.map((t) => {
           const ids = t.challenges
-            .map((c) => c.versions[0]?.id)
+            .map((c) => currentVersion(c.versions)?.id)
             .filter((id): id is string => !!id);
           const solved = ids.filter(
             (id) => statuses.get(id)?.kind === "SOLVED",

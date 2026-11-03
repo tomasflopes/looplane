@@ -7,7 +7,8 @@ import { Markdown } from "@/components/markdown";
 import { SubmissionForm } from "@/components/submission-form";
 import { requireUser } from "@/lib/auth";
 import { findChallenge } from "@/lib/challenges/loader";
-import { db } from "@/lib/db";
+import { currentVersion } from "@/lib/challenges/versions";
+import { database } from "@/lib/container";
 import { getChallengeStatus } from "@/lib/progress";
 import { challengeRng } from "@/lib/rng";
 
@@ -24,16 +25,10 @@ export default async function ChallengePage({
 }) {
   const user = await requireUser(),
     id = (await params).id;
-  const row = await db.challenge.findUnique({
-    where: { slug: id },
-    include: {
-      versions: { orderBy: { version: "desc" }, take: 1 },
-      theme: true,
-    },
-  });
-  const version = row?.versions[0];
+  const row = await database.challenges.findBySlug(id);
+  const version = row && currentVersion(row.versions);
   if (!row || !version) notFound();
-  const status = await getChallengeStatus(db, user.id, version.id);
+  const status = await getChallengeStatus(database, user.id, version.id);
   if (status.kind !== "AVAILABLE" && status.kind !== "SOLVED")
     return (
       <section className="mx-auto max-w-xl py-16 text-center">
@@ -63,14 +58,7 @@ export default async function ChallengePage({
     input = definition.generate(
       challengeRng(user.id, row.slug, version.version),
     );
-  const progress = await db.challengeProgress.findUnique({
-    where: {
-      studentId_challengeVersionId: {
-        studentId: user.id,
-        challengeVersionId: version.id,
-      },
-    },
-  });
+  const progress = await database.progress.find(user.id, version.id);
 
   return (
     <>

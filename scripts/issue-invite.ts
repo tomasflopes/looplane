@@ -1,10 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { db } from "../lib/db";
-import { createInviteCode, hashInviteCode } from "../lib/invites";
-
-type Student = { name: string; email: string; expiresAt: Date | null };
+import { database } from "../lib/container";
+import { inviteByEmail } from "../lib/students";
 
 function usage() {
   console.log(`Issue one-time invite codes for students.
@@ -54,28 +52,6 @@ function parseCsv(contents: string): { name: string; email: string }[] {
   });
 }
 
-async function issue(student: Student) {
-  const code = createInviteCode();
-  return db.$transaction(async (tx) => {
-    const existing = await tx.user.findUnique({
-      where: { email: student.email },
-    });
-    const user =
-      existing ??
-      (await tx.user.create({
-        data: { name: student.name, email: student.email, role: "STUDENT" },
-      }));
-    await tx.inviteCode.create({
-      data: {
-        codeHash: hashInviteCode(code),
-        studentId: user.id,
-        expiresAt: student.expiresAt,
-      },
-    });
-    return { code, existed: Boolean(existing) };
-  });
-}
-
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) return usage();
@@ -98,7 +74,7 @@ async function main() {
   for (const student of students) {
     if (!student.name || !student.email)
       throw new Error(`Every student needs a name and an email.`);
-    const { code, existed } = await issue({
+    const { inviteCode: code, existed } = await inviteByEmail({
       name: student.name,
       email: student.email,
       expiresAt,
@@ -123,4 +99,4 @@ main()
     console.error(error instanceof Error ? error.message : error);
     process.exit(1);
   })
-  .finally(() => db.$disconnect());
+  .finally(() => database.disconnect());

@@ -1,15 +1,11 @@
 import { updateInterests } from "@/app/actions";
 import { requireUser } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { database } from "@/lib/container";
 
 export default async function Settings() {
   const user = await requireUser();
-  const themes = await db.theme.findMany({ orderBy: { name: "asc" } });
-  const selected = new Set(
-    (await db.studentInterest.findMany({ where: { studentId: user.id } })).map(
-      (i) => i.themeId,
-    ),
-  );
+  const themes = await database.themes.list();
+  const selected = new Set(await database.themes.interestIds(user.id));
   return (
     <>
       <p className="eyebrow">Settings</p>
